@@ -2,7 +2,7 @@
 #coding: utf-8
 
 import shmht
-import marshal
+import _pickle as marshal
 
 #basic wrapper: open, close, get, set, remove, foreach
 #extended wrapper: getobj, setobj, [], to_dict, update
@@ -46,6 +46,7 @@ class HashTable(object):
         val = self.get(key, default)
         if val == default:
             return default
+#        return self.loads(bytes(val, 'utf-8', errors='surrogateescape'))
         return self.loads(val)
 
     def setobj(self, key, val):
@@ -91,62 +92,66 @@ if __name__ == "__main__":
     ht = HashTable('/dev/shm/test.HashTable', 1024, 1)
 
     #set
-    ht['a'] = '1'
-    ht.set('b', '2')
-    c = {'hello': 'world'}
+    ht['a'] = b'1'
+    ht.set('b', b'2')
+#    c = {'hello': 'world'}
+    c = [0,1]
     ht.setobj('c', c)
 
     #get
-    print ht['b'] == '2'
-    print ht['c'] == marshal.dumps(c)
-    print ht.getobj('c') == c
-    print ht.get('d') == None
+    print(ht['b'] == b'2')
+    print(ht['c'] == marshal.dumps(c))
+    print(ht.getobj('c') == c)
+    print(ht.get('d') == None)
     try:
         ht['d']
-        print False
+        print(False)
     except:
-        print True
+        print(True)
 
     #contains
-    print ('c' in ht) == True
-    print ('d' in ht) == False
+    print(('c' in ht) == True)
+    print(('d' in ht) == False)
 
     #del
     del ht['c']
-    print ht.get('c') == None
+    print(ht.get('c') == None)
     try:
         del ht['d']
-        print 'del:', False
+        print('del:', False)
     except:
-        print True
+        print(True)
 
     #update & to_dict & foreach
     ht.setobj('c', c)
-    print ht.to_dict() == {'a': '1', 'b': '2', 'c': dumps(c)}
+    print(ht.to_dict() == {'a': b'1', 'b': b'2', 'c': dumps(c)})
 
-    s = ''
+    s = b''
     def cb(key, value):
         global s
-        s += key + str(value)
+        if isinstance(value, int):
+            value = bytes(str(value), 'ascii')
+        print(key, value)
+        s += bytes(key, 'ascii') + value
     ht.foreach(cb)
-    print s == 'a1b2c' + dumps(c)
+    print(s == b'a1b2c' + dumps(c))
 
     ht.update({'a': 1, 'b': 2}, serialize=True)
 
-    s = ''
+    s = b''
     ht.foreach(cb, unserialize=True)
-    print s == 'a1b2c' + str(c)
+    print(s == bytes('a1b2c' + str(c), 'ascii'))
 
-    print ht.to_dict() == {'a':dumps(1), 'b':dumps(2), 'c':dumps(c)}
-    print ht.to_dict(unserialize=True) == {'a': 1, 'b': 2, 'c': c}
+    print(ht.to_dict() == {'a':dumps(1), 'b':dumps(2), 'c':dumps(c)})
+    print(ht.to_dict(unserialize=True) == {'a': 1, 'b': 2, 'c': c})
 
     #close
     ht.close()
     try:
         ht['a']
-        print False
+        print(False)
     except:
-        print True
+        print(True)
 
     #simple performance test
     import time
@@ -159,17 +164,17 @@ if __name__ == "__main__":
     begin_time = time.time()
     for i in range(capacity):
         s = '%064d' % i
-        ht[s] = s
+        ht[s] = dumps(s) #bytes(s, 'ascii')
     end_time = time.time()
-    print capacity / (end_time - begin_time), 'iops @ set'
+    print(capacity / (end_time - begin_time), 'iops @ set')
 
     begin_timend_time = time.time()
     for i in range(capacity):
         s = '%064d' % i
-        if s != ht[s]:
-            raise Exception(s)
+        if dumps(s) != ht[s]:
+            raise Exception(s, ht[s])
     end_time = time.time()
-    print capacity / (end_time - begin_time), 'iops @ get'
+    print(capacity / (end_time - begin_time), 'iops @ get')
 
     ht.close()
 

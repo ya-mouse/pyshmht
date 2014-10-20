@@ -10,6 +10,7 @@
 
 #include <Python.h>
 
+#include "py3.h"
 #include "hashtable.h"
 
 struct mapnode {
@@ -30,7 +31,6 @@ static PyObject * shmht_remove(PyObject *self, PyObject *args);
 static PyObject * shmht_foreach(PyObject *self, PyObject *args);
 
 static PyObject *shmht_error; 
-PyMODINIT_FUNC initshmht(void);
 
 static PyMethodDef shmht_methods[] = {
     {"open", shmht_open, METH_VARARGS, "create a shared memory hash table"},
@@ -42,17 +42,45 @@ static PyMethodDef shmht_methods[] = {
     {NULL, NULL, 0, NULL}
 };
 
-PyMODINIT_FUNC initshmht(void)
+PyMODINIT_FUNC
+#if PY_MAJOR_VERSION >= 3
+PyInit_shmht(void)
+{
+    static struct PyModuleDef shmht_moduledef = {
+        PyModuleDef_HEAD_INIT,
+        "shmht",                    /* m_name */
+        "shmht",                    /* m_doc */
+        -1,                         /* m_size */
+        shmht_methods,              /* m_methods */
+        NULL,                       /* m_reload */
+        NULL,                       /* m_traverse */
+        NULL,                       /* m_clear */
+        NULL,                       /* m_free */
+    };
+
+    PyObject *m = PyModule_Create(&shmht_moduledef);
+    if (m == NULL) {
+        return NULL;
+    }
+
+#else
+initshmht(void)
 {
     PyObject *m = Py_InitModule("shmht", shmht_methods);
-    if (m == NULL)
+    if (m == NULL) {
         return;
+    }
+#endif
 
     shmht_error = PyErr_NewException("shmht.error", NULL, NULL);
     Py_INCREF(shmht_error);
     PyModule_AddObject(m, "error", shmht_error);
 
     bzero(ht_map, sizeof(ht_map));
+
+#if PY_MAJOR_VERSION >= 3
+    return m;
+#endif
 }
 
 static PyObject * shmht_open(PyObject *self, PyObject *args)
@@ -202,14 +230,33 @@ static PyObject * shmht_getval(PyObject *self, PyObject *args)
     if (value == NULL) {
         Py_RETURN_NONE;
     }
+#if 0
+#if PY_VERSION_HEX >= 0x03000000
+#if PY_VERSION_HEX >= 0x03010000
+    return PyUnicode_DecodeUTF8(value->str, value->size, "surrogateescape");
+#else
+    return PyUnicode_FromStringAndSize(value->str, value->size);
+#endif
+#else
     return PyString_FromStringAndSize(value->str, value->size);
+#endif
+#else
+    return PyBytes_FromStringAndSize(value->str, value->size);
+#endif
 }
 
 static PyObject * shmht_setval(PyObject *self, PyObject *args)
 {
-    int idx, key_size, value_size;
-    const char *key, *value;
-    if (!PyArg_ParseTuple(args, "is#s#:shmht.setval", &idx, &key, &key_size, &value, &value_size)) {
+    int idx, key_size; Py_ssize_t value_size;
+    const char *key;
+    char *value;
+    PyObject *value_bytes;
+    if (!PyArg_ParseTuple(args, "is#S:shmht.setval", &idx, &key, &key_size, &value_bytes)) {
+        return NULL;
+    }
+
+    if (PyBytes_AsStringAndSize(value_bytes, &value, &value_size) != 0) {
+        PyErr_Format(shmht_error, "unable to convert value to bytes");
         return NULL;
     }
 
@@ -270,7 +317,8 @@ static PyObject * shmht_foreach(PyObject *self, PyObject *args)
     ht_iter *iter = ht_get_iterator(ht);
     while (ht_iter_next(iter)) {
         ht_str *key = iter->key, *value = iter->value;
-        PyObject *arglist = Py_BuildValue("(s#s#)", key->str, key->size, value->str, value->size);
+        PyObject *bytes = PyBytes_FromStringAndSize(value->str, value->size);
+        PyObject *arglist = Py_BuildValue("(s#O)", key->str, key->size, bytes);
         PyEval_CallObject(cb, arglist);
         Py_DECREF(arglist);
     }
