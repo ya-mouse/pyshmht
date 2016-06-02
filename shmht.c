@@ -7,6 +7,7 @@
 #include <fcntl.h>
 #include <pthread.h>
 #include <sys/mman.h>
+#include <sys/file.h>
 
 #include <Python.h>
 
@@ -224,9 +225,11 @@ static PyObject * shmht_getval(PyObject *self, PyObject *args)
         return NULL;
     }
 
+    flock(ht_map[idx].fd, LOCK_SH);
     hashtable *ht = ht_map[idx].ht;
 
     ht_str* value = ht_get(ht, key, key_size);
+    flock(ht_map[idx].fd, LOCK_UN);
     if (value == NULL) {
         Py_RETURN_NONE;
     }
@@ -265,12 +268,15 @@ static PyObject * shmht_setval(PyObject *self, PyObject *args)
         return NULL;
     }
 
+    flock(ht_map[idx].fd, LOCK_EX);
     hashtable *ht = ht_map[idx].ht;
 
     if (ht_set(ht, key, key_size, value, value_size) == False) {
+        flock(ht_map[idx].fd, LOCK_UN);
         PyErr_Format(shmht_error, "insert failed for key(%s)", key);
         return NULL;
     }
+    flock(ht_map[idx].fd, LOCK_UN);
 
     Py_RETURN_TRUE;
 }
@@ -287,10 +293,13 @@ static PyObject * shmht_remove(PyObject *self, PyObject *args)
         return NULL;
     }
 
+    flock(ht_map[idx].fd, LOCK_EX);
     hashtable *ht = ht_map[idx].ht;
     if (ht_remove(ht, key, key_size) == False) {
+        flock(ht_map[idx].fd, LOCK_UN);
         Py_RETURN_FALSE;
     }
+    flock(ht_map[idx].fd, LOCK_UN);
 
     Py_RETURN_TRUE;
 }
@@ -313,6 +322,7 @@ static PyObject * shmht_foreach(PyObject *self, PyObject *args)
         return NULL;
     }
 
+    flock(ht_map[idx].fd, LOCK_SH);
     hashtable *ht = ht_map[idx].ht;
     ht_iter *iter = ht_get_iterator(ht);
     while (ht_iter_next(iter)) {
@@ -323,6 +333,7 @@ static PyObject * shmht_foreach(PyObject *self, PyObject *args)
         Py_DECREF(arglist);
     }
     free(iter);
+    flock(ht_map[idx].fd, LOCK_UN);
 
     Py_RETURN_NONE;
 }
